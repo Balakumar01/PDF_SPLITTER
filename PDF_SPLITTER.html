@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Splitter</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background: #3390ff;
+            color: white;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            color: #333;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            display: inline-block;
+            width: 50%;
+            min-width: 300px;
+        }
+        h2 {
+            color: #0056b3;
+            font-size: 24px;
+        }
+        input, button {
+            margin: 10px;
+            padding: 12px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            font-size: 16px;
+            width: 80%;
+            max-width: 400px;
+        }
+        button {
+            background: #0056b3;
+            color: white;
+            cursor: pointer;
+            border: none;
+            font-weight: bold;
+            box-shadow: 0 5px 15px rgba(0, 86, 179, 0.4);
+        }
+        button:hover {
+            background: #003f80;
+            transform: scale(1.05);
+        }
+        #output {
+            margin-top: 20px;
+            text-align: left;
+        }
+        .download-link {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 10px auto;
+            padding: 10px;
+            background: #0056b3;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            width: 80%;
+            max-width: 400px;
+        }
+        .download-link:hover {
+            background: #003f80;
+            transform: scale(1.05);
+        }
+        .download-buttons {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 15px;
+        }
+        .download-buttons button {
+            margin: 5px;
+            width: 80%;
+            max-width: 400px;
+        }
+        #fileSizeDisplay {
+            margin-top: 10px;
+            font-weight: bold;
+            color: #003f80;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>PDF Splitter</h2>
+        <input type="file" id="pdfFile" accept="application/pdf" onchange="displayFileSize()">
+        <div id="fileSizeDisplay"></div>
+        <input type="text" id="ranges" placeholder="Enter ranges (e.g., 1-2 3-4)">
+        <button onclick="splitPDF()">Split PDF</button>
+        <div id="output"></div>
+        <div class="download-buttons" id="downloadButtons" style="display:none;">
+            <button id="downloadAll" onclick="downloadAll()">Download All Files</button>
+            <button id="downloadZip" onclick="downloadAsZip()">Download as ZIP</button>
+        </div>
+    </div>
+
+    <script>
+        let pdfFiles = [];
+        let downloadLinks = [];
+        let originalFileName = '';
+
+        function displayFileSize() {
+            const fileInput = document.getElementById('pdfFile');
+            const fileSizeDisplay = document.getElementById('fileSizeDisplay');
+            if (fileInput.files.length > 0) {
+                const fileSize = (fileInput.files[0].size / 1024).toFixed(2) + ' KB';
+                fileSizeDisplay.textContent = `File Size: ${fileSize}`;
+            } else {
+                fileSizeDisplay.textContent = '';
+            }
+        }
+
+        async function splitPDF() {
+            const fileInput = document.getElementById('pdfFile');
+            const rangesInput = document.getElementById('ranges').value;
+            const outputDiv = document.getElementById('output');
+            const downloadButtons = document.getElementById('downloadButtons');
+            downloadLinks = [];
+            pdfFiles = [];
+            
+            if (!fileInput.files.length) {
+                alert('Please select a PDF file.');
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            originalFileName = file.name.replace(/\.pdf$/, "");
+            const arrayBuffer = await file.arrayBuffer();
+            const pdfDoc = await PDFLib.PDFDocument.load(arrayBuffer);
+            const ranges = rangesInput.split(' ');
+            
+            outputDiv.innerHTML = '';
+            
+            for (const range of ranges) {
+                const [start, end] = range.split('-').map(Number);
+                if (!start || !end || start > end) {
+                    alert(`Invalid range: ${range}`);
+                    return;
+                }
+                
+                const newPdf = await PDFLib.PDFDocument.create();
+                
+                // Remove metadata that might reveal backend implementation
+                newPdf.setProducer('');
+                newPdf.setCreator('');
+                
+                // Copy pages from the original document
+                for (let i = start - 1; i < end; i++) {
+                    const [copiedPage] = await newPdf.copyPages(pdfDoc, [i]);
+                    newPdf.addPage(copiedPage);
+                }
+                
+                const newPdfBytes = await newPdf.save();
+                const blob = new Blob([newPdfBytes], { type: 'application/pdf' });
+                const filename = `${originalFileName}_${start}_${end}.pdf`;
+                
+                // Store the PDF file data for later use
+                pdfFiles.push({
+                    filename: filename,
+                    blob: blob
+                });
+                
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = filename;
+                link.className = 'download-link';
+                link.innerHTML = `Download ${filename}`;
+                outputDiv.appendChild(link);
+                downloadLinks.push(link);
+            }
+            
+            if (downloadLinks.length > 0) {
+                downloadButtons.style.display = 'flex';
+            }
+        }
+        
+        function downloadAll() {
+            downloadLinks.forEach(link => link.click());
+        }
+        
+        async function downloadAsZip() {
+            if (pdfFiles.length === 0) {
+                alert('No PDF files to download.');
+                return;
+            }
+            
+            const zip = new JSZip();
+            
+            // Add each PDF to the zip file
+            pdfFiles.forEach(file => {
+                zip.file(file.filename, file.blob);
+            });
+            
+            // Generate the zip file
+            const zipContent = await zip.generateAsync({type: 'blob'});
+            
+            // Create a download link for the zip file
+            const zipFilename = `${originalFileName}_split_files.zip`;
+            saveAs(zipContent, zipFilename);
+        }
+    </script>
+</body>
+</html>
